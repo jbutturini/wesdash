@@ -5,38 +5,29 @@ The WES Market Data Generator is a python script which ingests publicly availabl
 
 The WES Market Data Generator takes both sources as input and generates a single Excel spreadsheet with the WES Market Data KPIs.
 
-## Workbook Refresh
+# Usage
+
+## Refresh
+The `wesdash refresh --help` command refreshes the entire `wesdash` dataset. It generates workbooks for:
+* ACS 1 year
+* ACS 5 year
+* OSSE Absenteeism
+
+To refresh the dataset, run the following command from a command prompt:
 ```
-python3 wesdash.py refresh --year 2023 --geo geo.yaml --out wes_kpi.xlsx \
-  --osse-chronic-url "PASTE_OSSE_XLSX_URL_HERE"
+python wesdash.py refresh --geo geo.yaml
 ```
 
-## Metric Subcategories
-
-```
-# Pipeline (Age 0-4, 5-9, 10-14)
-python3 wesdash.py pull pipeline --year 2023 --geo geo.yaml --out wes_kpi.xlsx
-
-# HH with kids <18
-python3 wesdash.py pull households --year 2023 --geo geo.yaml --out wes_kpi.xlsx
-
-# High-income HH with kids
-python3 wesdash.py pull high-income --year 2023 --geo geo.yaml --out wes_kpi.xlsx
-
-# Private school chooser rate
-python3 wesdash.py pull chooser --year 2023 --geo geo.yaml --out wes_kpi.xlsx
-
-# DC public alternatives component (example: OSSE chronic absenteeism xlsx)
-python3 wesdash.py pull public-dc --out wes_kpi.xlsx \
-  --osse-chronic-url "PASTE_OSSE_XLSX_URL_HERE"
-```
+This writes workbooks to:
+* `out/wes_kpi_acs5.xlsx`
+* `out/wes_kpi_acs1.xlsx`
 
 # Source Reference
 
-## American Community Survey (ACS) 5 Year
-ACS data is a rolling 5-year estimate that gets recomputed every year as the window moves forward. Practically, ACS data lags. For example, Census’s 2024 release materials show 2020–2024 ACS 5-year estimates scheduled for December 11, 2025, and the ACS “updates” page notes the next release on January 29 will include the 2020–2024 5-year estimates. The 5 year is great for small geographies (tracts, ZCTAs) because it’s stable. For small geographies (like many ZCTAs or census tracts), the number of sampled households in any single year is often too small to produce stable estimates.
+## American Community Survey (ACS)
+ACS data is gathered every year and compiled into both a 1-year and a rolling 5-year dataset. The rolling 5 year dataset gets recomputed every year as the window moves forward. At the 5 year, releases of ACS data lag. For example, Census’s 2024 release materials show 2020–2024 ACS 5-year estimates scheduled for December 11, 2025, and the ACS “updates” page notes the next release on January 29 will include the 2020–2024 5-year estimates. The 5 year is great for small geographies (tracts, ZCTAs) because it’s stable. For small geographies (like many ZCTAs or census tracts), the number of sampled households in any single year is often too small to produce stable estimates.
 
-The ACS data is structured as follows:
+The ACS data (for both 1 year and 5 year) is structured as follows:
 * The table ID is the prefix (e.g., B01001, B14003, S1101, B19131).
 * The suffix like _003E is a specific line (“cell”) in that table.
 * E = estimate (the point estimate). There are also M margin-of-error variables and EA/MA “annotation” helpers in the API output.

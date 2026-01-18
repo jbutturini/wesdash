@@ -1,2 +1,4 @@
-wes_kpi.xlsx
+wes_kpi*
 ~$wes_kpi.xlsx
+out/
+.DS_Store

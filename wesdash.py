@@ -3,6 +3,15 @@ from __future__ import annotations
 
 '''
 WES KPI Dashboard Data Puller
+
+Examples:
+  # Refresh ACS 5-year + ACS 1-year in one run (latest available vintages). All output
+  # is dropped in the ./out/ folder.
+  python wesdash.py refresh --geo geo.yaml
+
+  # Optional: add OSSE chronic absenteeism file as a DC public-alternatives input
+  python wesdash.py refresh --geo geo.yaml \
+    --osse-chronic-url "https://osse.dc.gov/.../Chronic%20Absenteeism%20Metric%20Scores.xlsx"
 '''
 import argparse
 import os
@@ -18,6 +27,38 @@ from openpyxl.workbook import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
 CENSUS_API_KEY = os.getenv("CENSUS_API_KEY", "").strip()
+DEFAULT_OUT_DIR = "out"
+DEFAULT_OUT_ACS5 = "wes_kpi_acs5.xlsx"
+DEFAULT_OUT_ACS1 = "wes_kpi_acs1.xlsx"
+
+
+def dataset_exists(year: int, dataset: str) -> bool:
+    """Return True if the Census API dataset endpoint exists."""
+    # Using the human-facing .html is a quick existence check.
+    url = f"https://api.census.gov/data/{year}/acs/{dataset}.html"
+    try:
+        r = requests.get(url, timeout=20)
+        return r.status_code == 200
+    except requests.RequestException:
+        return False
+
+
+def resolve_latest_year(requested_year: int, dataset: str, max_back: int = 10) -> int:
+    """Walk backwards until a dataset vintage exists (prevents confusing 404s)."""
+    for y in range(requested_year, requested_year - max_back, -1):
+        if dataset_exists(y, dataset):
+            return y
+    raise RuntimeError(f"Could not find an available {dataset} vintage within the last {max_back} years from {requested_year}.")
+
+
+def pick_year_for_dataset(dataset: str, year_map: Dict[str, int]) -> int:
+    """Map member.dataset (acs5/acs1) to the correct year arg."""
+    if dataset.startswith("acs1"):
+        return year_map["acs1"]
+    if dataset.startswith("acs5"):
+        return year_map["acs5"]
+    # Default fallback: treat as acs5-like
+    return year_map["acs5"]
 
 
 @dataclass(frozen=True)
@@ -83,6 +124,19 @@ def expand_geos(cfg: Dict[str, Any]) -> Dict[str, List[CensusGeo]]:
     return out
 
 
+def load_geo_members(path: str) -> Dict[str, List[CensusGeo]]:
+    return expand_geos(load_geo_config(path))
+
+
+def filter_geo_members(geo_members: Dict[str, List[CensusGeo]], dataset_prefix: str) -> Dict[str, List[CensusGeo]]:
+    filtered: Dict[str, List[CensusGeo]] = {}
+    for key, members in geo_members.items():
+        keep = [m for m in members if m.dataset.startswith(dataset_prefix)]
+        if keep:
+            filtered[key] = keep
+    return filtered
+
+
 # -----------------------------
 # KPI pulls
 # -----------------------------
@@ -105,15 +159,21 @@ B14003_VARS = {
 }
 
 
-def pull_pipeline(year: int, geo_cfg_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    geo_members = expand_geos(load_geo_config(geo_cfg_path))
+def pull_pipeline_acs(
+    acs5_year: int,
+    acs1_year: int,
+    geo_cfg_path: str,
+    geo_members: Optional[Dict[str, List[CensusGeo]]] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    geo_members = geo_members or load_geo_members(geo_cfg_path)
     raw_rows, out_rows = [], []
 
     for geo_key, members in geo_members.items():
         agg = {"geo_key": geo_key, "age0_4": 0.0, "age5_9": 0.0, "age10_14": 0.0}
         vars_needed = sorted({v for vs in B01001_VARS.values() for v in vs})
         for m in members:
-            df = census_get(year, m.dataset, vars_needed, CensusGeo(m.dataset, m.for_clause, m.in_clause))
+            y = acs5_year if m.dataset == "acs5" else (acs1_year if acs1_year is not None else acs5_year)
+            df = census_get(y, m.dataset, vars_needed, CensusGeo(m.dataset, m.for_clause, m.in_clause))
             row = df.iloc[0].to_dict()
             row.update({"geo_key": geo_key, "member_for": m.for_clause, "member_in": m.in_clause or "", "dataset": m.dataset})
             raw_rows.append(row)
@@ -127,16 +187,27 @@ def pull_pipeline(year: int, geo_cfg_path: str) -> Tuple[pd.DataFrame, pd.DataFr
     return pd.DataFrame(raw_rows), pd.DataFrame(out_rows)
 
 
-def pull_households(year: int, geo_cfg_path: str, subject_dataset: str = "acs5/subject") -> Tuple[pd.DataFrame, pd.DataFrame]:
-    geo_members = expand_geos(load_geo_config(geo_cfg_path))
+def pull_households_acs(
+    acs5_year: int,
+    acs1_year: int,
+    geo_cfg_path: str,
+    subject_dataset: str = "auto",
+    geo_members: Optional[Dict[str, List[CensusGeo]]] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    geo_members = geo_members or load_geo_members(geo_cfg_path)
     raw_rows, out_rows = [], []
 
     for geo_key, members in geo_members.items():
         agg_val = 0.0
         for m in members:
-            df = census_get(year, subject_dataset, [S1101_VAR_HH_OWN_CHILDREN_U18], CensusGeo(subject_dataset, m.for_clause, m.in_clause))
+            # Choose subject endpoint based on the member dataset unless explicitly overridden.
+            subj = subject_dataset
+            if subject_dataset == "auto":
+                subj = "acs5/subject" if m.dataset == "acs5" else "acs1/subject"
+            y = acs5_year if m.dataset == "acs5" else (acs1_year if acs1_year is not None else acs5_year)
+            df = census_get(y, subj, [S1101_VAR_HH_OWN_CHILDREN_U18], CensusGeo(subj, m.for_clause, m.in_clause))
             row = df.iloc[0].to_dict()
-            row.update({"geo_key": geo_key, "member_for": m.for_clause, "member_in": m.in_clause or "", "dataset": subject_dataset})
+            row.update({"geo_key": geo_key, "member_for": m.for_clause, "member_in": m.in_clause or "", "dataset": subj})
             raw_rows.append(row)
             agg_val += float(df[S1101_VAR_HH_OWN_CHILDREN_U18].iloc[0])
         out_rows.append({"geo_key": geo_key, "hh_own_children_u18": agg_val})
@@ -158,30 +229,53 @@ def _select_b19131_income_vars(meta: Dict[str, Any], income_labels: List[str]) -
     return sorted(set(selected))
 
 
-def pull_high_income(year: int, geo_cfg_path: str, dataset: str = "acs5") -> Tuple[pd.DataFrame, pd.DataFrame]:
-    geo_members = expand_geos(load_geo_config(geo_cfg_path))
+def pull_high_income_acs(
+    acs5_year: int,
+    acs1_year: int,
+    geo_cfg_path: str,
+    geo_members: Optional[Dict[str, List[CensusGeo]]] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    geo_members = geo_members or load_geo_members(geo_cfg_path)
 
-    meta = census_variables_index(year, dataset, group=B19131_GROUP)
-    vars_150_199 = _select_b19131_income_vars(meta, ["$150,000 to $199,999"])
-    vars_200p = _select_b19131_income_vars(meta, ["$200,000 or more"])
-    all_vars = sorted(set(vars_150_199 + vars_200p))
-    if not all_vars:
-        raise RuntimeError("Could not find B19131 vars for >=150k in this year/dataset. Try another ACS vintage.")
+    # Variable IDs can vary slightly by vintage. Discover variables by LABEL.
+    # We may need discovery for both acs5 and acs1 if the geo file mixes datasets.
+    need_acs1 = any(m.dataset == "acs1" for ms in geo_members.values() for m in ms)
+
+    meta_cache: Dict[str, Dict[str, Any]] = {
+        "acs5": census_variables_index(acs5_year, "acs5", group=B19131_GROUP)
+    }
+    if need_acs1:
+        y1 = acs1_year if acs1_year is not None else acs5_year
+        meta_cache["acs1"] = census_variables_index(y1, "acs1", group=B19131_GROUP)
+
+    vars_cache: Dict[str, Dict[str, List[str]]] = {}
+    for ds, meta in meta_cache.items():
+        v150 = _select_b19131_income_vars(meta, ["$150,000 to $199,999"])
+        v200 = _select_b19131_income_vars(meta, ["$200,000 or more"])
+        allv = sorted(set(v150 + v200))
+        if not allv:
+            raise RuntimeError(f"Could not discover B19131 high-income variables for {ds} in the requested vintage.")
+        vars_cache[ds] = {"150_199": v150, "200_plus": v200, "all": allv}
 
     raw_rows, out_rows = [], []
 
     for geo_key, members in geo_members.items():
         agg_150, agg_200 = 0.0, 0.0
         for m in members:
-            df = census_get(year, dataset, all_vars, CensusGeo(dataset, m.for_clause, m.in_clause))
+            dataset = m.dataset
+            y = acs5_year if dataset == "acs5" else (acs1_year if acs1_year is not None else acs5_year)
+            v = vars_cache[dataset]["all"]
+            df = census_get(y, dataset, v, CensusGeo(dataset, m.for_clause, m.in_clause))
             row = df.iloc[0].to_dict()
             row.update({"geo_key": geo_key, "member_for": m.for_clause, "member_in": m.in_clause or "", "dataset": dataset})
             raw_rows.append(row)
 
-            if vars_150_199:
-                agg_150 += float(df[vars_150_199].sum(axis=1).iloc[0])
-            if vars_200p:
-                agg_200 += float(df[vars_200p].sum(axis=1).iloc[0])
+            v150 = vars_cache[dataset]["150_199"]
+            v200 = vars_cache[dataset]["200_plus"]
+            if v150:
+                agg_150 += float(df[v150].sum(axis=1).iloc[0])
+            if v200:
+                agg_200 += float(df[v200].sum(axis=1).iloc[0])
 
         out_rows.append({
             "geo_key": geo_key,
@@ -193,15 +287,22 @@ def pull_high_income(year: int, geo_cfg_path: str, dataset: str = "acs5") -> Tup
     return pd.DataFrame(raw_rows), pd.DataFrame(out_rows)
 
 
-def pull_chooser_rate(year: int, geo_cfg_path: str, dataset: str = "acs5") -> Tuple[pd.DataFrame, pd.DataFrame]:
-    geo_members = expand_geos(load_geo_config(geo_cfg_path))
+def pull_chooser_rate_acs(
+    acs5_year: int,
+    acs1_year: int,
+    geo_cfg_path: str,
+    geo_members: Optional[Dict[str, List[CensusGeo]]] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    geo_members = geo_members or load_geo_members(geo_cfg_path)
     vars_needed = sorted({v for vs in B14003_VARS.values() for v in vs})
 
     raw_rows, out_rows = [], []
     for geo_key, members in geo_members.items():
         pub, priv = 0.0, 0.0
         for m in members:
-            df = census_get(year, dataset, vars_needed, CensusGeo(dataset, m.for_clause, m.in_clause))
+            dataset = m.dataset
+            y = acs5_year if dataset == "acs5" else (acs1_year if acs1_year is not None else acs5_year)
+            df = census_get(y, dataset, vars_needed, CensusGeo(dataset, m.for_clause, m.in_clause))
             row = df.iloc[0].to_dict()
             row.update({"geo_key": geo_key, "member_for": m.for_clause, "member_in": m.in_clause or "", "dataset": dataset})
             raw_rows.append(row)
@@ -212,9 +313,9 @@ def pull_chooser_rate(year: int, geo_cfg_path: str, dataset: str = "acs5") -> Tu
         chooser = (priv / (priv + pub)) if (priv + pub) > 0 else float("nan")
         out_rows.append({
             "geo_key": geo_key,
-            "public_enrolled_5_14": pub,
-            "private_enrolled_5_14": priv,
-            "private_chooser_rate_5_14": chooser,
+            "public_enrolled_3_14": pub,
+            "private_enrolled_3_14": priv,
+            "private_chooser_rate_3_14": chooser,
         })
 
     return pd.DataFrame(raw_rows), pd.DataFrame(out_rows)
@@ -276,53 +377,21 @@ def build_kpi_calcs(pipeline: pd.DataFrame, households: pd.DataFrame, high_incom
         "hh_own_children_u18": "HH w/ own children <18",
         "hhkids_income_150_plus": "High-income HH w/kids (>=150k)",
         "hhkids_income_200_plus": "High-income HH w/kids (>=200k)",
-        "private_chooser_rate_5_14": "Private school chooser rate (ages 5-14)",
+        "private_chooser_rate_3_14": "Private school chooser rate (ages 3-14)",
     })
 
 
-# -----------------------------
-# CLI
-# -----------------------------
-def cmd_pull(args: argparse.Namespace) -> None:
-    wb = ensure_workbook(args.out)
-
-    if args.category in ("pipeline", "all"):
-        raw, agg = pull_pipeline(args.year, args.geo)
-        write_df(wb, "RAW_ACS_B01001", raw)
-        write_df(wb, "KPI_Pipeline", agg)
-
-    if args.category in ("households", "all"):
-        raw, agg = pull_households(args.year, args.geo, args.subject_dataset)
-        write_df(wb, "RAW_ACS_S1101", raw)
-        write_df(wb, "KPI_Households", agg)
-
-    if args.category in ("high-income", "all"):
-        raw, agg = pull_high_income(args.year, args.geo)
-        write_df(wb, "RAW_ACS_B19131", raw)
-        write_df(wb, "KPI_HighIncome", agg)
-
-    if args.category in ("chooser", "all"):
-        raw, agg = pull_chooser_rate(args.year, args.geo)
-        write_df(wb, "RAW_ACS_B14003", raw)
-        write_df(wb, "KPI_Chooser", agg)
-
-    if args.category == "public-dc":
-        if not args.osse_chronic_url:
-            raise SystemExit("Provide --osse-chronic-url (direct xlsx url).")
-        df = pull_osse_chronic_absenteeism(args.osse_chronic_url)
-        write_df(wb, "RAW_OSSE_ChronicAbs", df)
-
-    wb.save(args.out)
-    print(f"Wrote {args.out}")
+def ensure_out_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
 
 
-def cmd_refresh(args: argparse.Namespace) -> None:
-    wb = ensure_workbook(args.out)
+def write_refresh_workbook(args: argparse.Namespace, out_path: str, geo_members: Dict[str, List[CensusGeo]]) -> None:
+    wb = ensure_workbook(out_path)
 
-    raw_p, kpi_p = pull_pipeline(args.year, args.geo)
-    raw_h, kpi_h = pull_households(args.year, args.geo, args.subject_dataset)
-    raw_i, kpi_i = pull_high_income(args.year, args.geo)
-    raw_c, kpi_c = pull_chooser_rate(args.year, args.geo)
+    raw_p, kpi_p = pull_pipeline_acs(args.acs5_year, args.acs1_year, args.geo, geo_members=geo_members)
+    raw_h, kpi_h = pull_households_acs(args.acs5_year, args.acs1_year, args.geo, args.subject_dataset, geo_members=geo_members)
+    raw_i, kpi_i = pull_high_income_acs(args.acs5_year, args.acs1_year, args.geo, geo_members=geo_members)
+    raw_c, kpi_c = pull_chooser_rate_acs(args.acs5_year, args.acs1_year, args.geo, geo_members=geo_members)
 
     write_df(wb, "RAW_ACS_B01001", raw_p)
     write_df(wb, "RAW_ACS_S1101", raw_h)
@@ -341,28 +410,47 @@ def cmd_refresh(args: argparse.Namespace) -> None:
         df = pull_osse_chronic_absenteeism(args.osse_chronic_url)
         write_df(wb, "RAW_OSSE_ChronicAbs", df)
 
-    wb.save(args.out)
-    print(f"Refreshed {args.out}")
+    wb.save(out_path)
+    print(f"Refreshed {out_path}")
+
+
+# -----------------------------
+# CLI
+# -----------------------------
+def cmd_refresh(args: argparse.Namespace) -> None:
+    # Always use the latest published vintages for both datasets.
+    current_year = datetime.utcnow().year
+    args.acs5_year = resolve_latest_year(current_year, "acs5")
+    args.acs1_year = resolve_latest_year(current_year, "acs1")
+
+    geo_members = load_geo_members(args.geo)
+    ensure_out_dir(DEFAULT_OUT_DIR)
+
+    geo_members_acs5 = filter_geo_members(geo_members, "acs5")
+    geo_members_acs1 = filter_geo_members(geo_members, "acs1")
+
+    if geo_members_acs5:
+        out_acs5 = os.path.join(DEFAULT_OUT_DIR, DEFAULT_OUT_ACS5)
+        write_refresh_workbook(args, out_acs5, geo_members_acs5)
+    else:
+        out_acs5 = os.path.join(DEFAULT_OUT_DIR, DEFAULT_OUT_ACS5)
+        print(f"No ACS5 geographies in {args.geo}; skipped {out_acs5}")
+
+    if geo_members_acs1:
+        out_acs1 = os.path.join(DEFAULT_OUT_DIR, DEFAULT_OUT_ACS1)
+        write_refresh_workbook(args, out_acs1, geo_members_acs1)
+    else:
+        out_acs1 = os.path.join(DEFAULT_OUT_DIR, DEFAULT_OUT_ACS1)
+        print(f"No ACS1 geographies in {args.geo}; skipped {out_acs1}")
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="wesdash", description="Pull WES KPI datasets into an Excel workbook.")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    pull = sub.add_parser("pull", help="Pull one category of metrics.")
-    pull.add_argument("category", choices=["pipeline", "households", "high-income", "chooser", "public-dc", "all"])
-    pull.add_argument("--year", type=int, default=2023)
-    pull.add_argument("--geo", type=str, default="geo.yaml")
-    pull.add_argument("--out", type=str, default="wes_kpi.xlsx")
-    pull.add_argument("--subject-dataset", type=str, default="acs5/subject")
-    pull.add_argument("--osse-chronic-url", type=str, default="")
-    pull.set_defaults(func=cmd_pull)
-
     refresh = sub.add_parser("refresh", help="Refresh everything and rebuild KPI_Calcs.")
-    refresh.add_argument("--year", type=int, default=2023)
     refresh.add_argument("--geo", type=str, default="geo.yaml")
-    refresh.add_argument("--out", type=str, default="wes_kpi.xlsx")
-    refresh.add_argument("--subject-dataset", type=str, default="acs5/subject")
+    refresh.add_argument("--subject-dataset", type=str, default="auto", help="Subject dataset endpoint: auto, acs5/subject, or acs1/subject")
     refresh.add_argument("--osse-chronic-url", type=str, default="")
     refresh.set_defaults(func=cmd_refresh)
 
