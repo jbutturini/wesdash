@@ -1,0 +1,24 @@
+geographies:
+  moco_md:
+    label: "Montgomery County, MD"
+    census:
+      dataset: "acs5"
+      for: "county:031"
+      in: "state:24"
+
+  bethesda_cc_zctas:
+    label: "Bethesda/Chevy Chase (ZCTA bundle)"
+    custom:
+      members:
+        - census: { dataset: "acs5", for: "zip code tabulation area:20814" }
+        - census: { dataset: "acs5", for: "zip code tabulation area:20815" }
+        - census: { dataset: "acs5", for: "zip code tabulation area:20816" }
+        - census: { dataset: "acs5", for: "zip code tabulation area:20817" }
+
+  upper_nw_dc_zctas:
+    label: "Upper NW DC (ZCTA bundle - replace with your set)"
+    custom:
+      members:
+        - census: { dataset: "acs5", for: "zip code tabulation area:20008" }
+        - census: { dataset: "acs5", for: "zip code tabulation area:20015" }
+        - census: { dataset: "acs5", for: "zip code tabulation area:20016" }
