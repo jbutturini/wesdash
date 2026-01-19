@@ -1,41 +1,38 @@
 geographies:
   moco_md:
     label: "Montgomery County, MD"
-    census:
-      dataset: "acs5"
-      for: "county:031"
-      in: "state:24"
-
-  # Optional: same geography but pulled from ACS 1-year (more recent, larger-area only)
-  moco_md_acs1:
-    label: "Montgomery County, MD (ACS 1-year)"
-    census:
-      dataset: "acs1"
-      for: "county:031"
-      in: "state:24"
+    datasets:
+      - dataset: "acs5"
+        for: "county:031"
+        in: "state:24"
+      - dataset: "acs1"
+        for: "county:031"
+        in: "state:24"
 
   # Note: Census ACS does NOT support DC wards directly. The closest ACS 1-year analogue is the full
   # District of Columbia (county:001 in state:11). For ward-level, use OSSE/EdScape/other DC sources.
-  dc_total_acs1:
-    label: "District of Columbia (ACS 1-year)"
-    census:
-      dataset: "acs1"
-      for: "county:001"
-      in: "state:11"
+  dc_total:
+    label: "District of Columbia"
+    datasets:
+      - dataset: "acs1"
+        for: "county:001"
+        in: "state:11"
 
   bethesda_cc_zctas:
     label: "Bethesda/Chevy Chase (ZCTA bundle)"
-    custom:
-      members:
-        - census: { dataset: "acs5", for: "zip code tabulation area:20814" }
-        - census: { dataset: "acs5", for: "zip code tabulation area:20815" }
-        - census: { dataset: "acs5", for: "zip code tabulation area:20816" }
-        - census: { dataset: "acs5", for: "zip code tabulation area:20817" }
+    datasets:
+      - dataset: "acs5"
+        members:
+          - { for: "zip code tabulation area:20814", in: "state:24" }
+          - { for: "zip code tabulation area:20815", in: "state:24" }
+          - { for: "zip code tabulation area:20816", in: "state:24" }
+          - { for: "zip code tabulation area:20817", in: "state:24" }
 
   upper_nw_dc_zctas:
-    label: "Upper NW DC (ZCTA bundle - replace with your set)"
-    custom:
-      members:
-        - census: { dataset: "acs5", for: "zip code tabulation area:20008" }
-        - census: { dataset: "acs5", for: "zip code tabulation area:20015" }
-        - census: { dataset: "acs5", for: "zip code tabulation area:20016" }
+    label: "Upper NW DC (ZCTA bundle)"
+    datasets:
+      - dataset: "acs5"
+        members:
+          - { for: "zip code tabulation area:20008", in: "state:11" }
+          - { for: "zip code tabulation area:20015", in: "state:11" }
+          - { for: "zip code tabulation area:20016", in: "state:11" }
