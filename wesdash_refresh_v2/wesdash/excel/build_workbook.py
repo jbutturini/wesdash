@@ -63,8 +63,8 @@ def build_data_dictionary(schemas: List[Dict[str, Any]]) -> pd.DataFrame:
 def build_workbook(
     output_path: str,
     pipeline_tables: Dict[str, pd.DataFrame],
-    households_df: pd.DataFrame,
-    chooser_df: pd.DataFrame,
+    households_tables: Dict[str, pd.DataFrame],
+    chooser_tables: Dict[str, pd.DataFrame],
     public_alt_df: pd.DataFrame,
     data_dict_df: pd.DataFrame,
 ) -> None:
@@ -74,8 +74,10 @@ def build_workbook(
 
     for sheet_name, df in pipeline_tables.items():
         write_df(wb, sheet_name, df)
-    write_df(wb, "households", households_df)
-    write_df(wb, "chooser", chooser_df)
+    for sheet_name, df in households_tables.items():
+        write_df(wb, sheet_name, df)
+    for sheet_name, df in chooser_tables.items():
+        write_df(wb, sheet_name, df)
     write_df(wb, "public_alternatives", public_alt_df)
     write_df(wb, "data_dictionary", data_dict_df)
 

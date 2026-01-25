@@ -115,19 +115,17 @@ def refresh(cfg_path: str) -> None:
         _smoke_check(df, target_zctas, name)
 
     pipeline_tables = build_pipeline(acs5, acs1_alloc, housing, usps, dc_open)
-    households = build_households(acs5, acs1_alloc)
-    chooser = build_chooser(acs5, acs1_alloc)
+    households_tables = build_households(acs5, acs1_alloc)
+    chooser_tables = build_chooser(acs5, acs1_alloc)
     public_alt = build_public_alternatives(osse, msde)
 
-    metric_tables = {
-        "households": households,
-        "chooser": chooser,
-        "public_alternatives": public_alt,
-    }
-    for name, df in metric_tables.items():
-        if name == "public_alternatives" and osse_skipped and msde_skipped:
-            logger.warning("Skipping public_alternatives smoke check: osse and msde_md not configured.")
-            continue
+    if osse_skipped and msde_skipped:
+        logger.warning("Skipping public_alternatives smoke check: osse and msde_md not configured.")
+    else:
+        _smoke_check(public_alt, target_zctas, "public_alternatives")
+    for name, df in households_tables.items():
+        _smoke_check(df, target_zctas, name)
+    for name, df in chooser_tables.items():
         _smoke_check(df, target_zctas, name)
     for name, df in pipeline_tables.items():
         _smoke_check(df, target_zctas, name)
@@ -145,8 +143,8 @@ def refresh(cfg_path: str) -> None:
     build_workbook(
         cfg["paths"]["output_excel"],
         pipeline_tables,
-        households,
-        chooser,
+        households_tables,
+        chooser_tables,
         public_alt,
         data_dict,
     )

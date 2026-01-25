@@ -72,8 +72,10 @@ Current:
 - `pipeline_acs5`: ACS 5-year pipeline counts (age 0-4, 5-9, 10-14)
 - `pipeline_acs1`: ACS 1-year allocated pipeline counts (age 0-4, 5-9, 10-14)
 - `pipeline_housing`: Zillow ZIP monthly series (prices, rents, inventory)
-- `households`: ACS 5-year + ACS 1-year (allocated) household indicators
-- `chooser`: ACS 5-year + ACS 1-year (allocated) enrollment/chooser indicators
+- `households_acs5`: ACS 5-year household indicators
+- `households_acs1`: ACS 1-year allocated household indicators
+- `chooser_acs5`: ACS 5-year enrollment/chooser indicators
+- `chooser_acs1`: ACS 1-year allocated enrollment/chooser indicators
 
 Planned:
 - `pipeline_usps`: USPS activity proxy (monthly)
