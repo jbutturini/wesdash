@@ -1,0 +1,93 @@
+project:
+  start_year: 2015
+  output_excel: output/wes_board_dashboard.xlsx
+  raw_dir: data/raw
+  processed_dir: data/processed
+  geo_cache_dir: data/geo
+
+geography:
+  target_zips: # update with target zips
+    - "20007"
+    - "20008"
+    - "20015"
+    - "20016"
+    - "20814"
+    - "20815"
+    - "20816"
+    - "20817"
+    - "20818"
+    - "20854"
+    - "20895"
+  zip_to_zcta_overrides: {}
+
+datasets:
+  acs:
+    api_key_env: CENSUS_API_KEY # Optional
+
+  # Note: Zillow subjects its public download URLs for csv data to change at any point.
+  # In order to work around this, a path to a local data file can be provided.
+  housing_zip:
+    files:
+      # ZHVI All Homes (SFR, Condo/Co-op) Time Series, Smoothed, Seasonally Adjusted($)
+      zhvi:
+        local_path: ""
+        urls:
+          - https://files.zillowstatic.com/research/public_csvs/zhvi/Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv
+      # ZORI (Smoothed): All Homes Plus Multifamily Time Series ($)
+      zori:
+        local_path: ""
+        urls:
+          - https://files.zillowstatic.com/research/public_csvs/zori/Zip_zori_uc_sfrcondomfr_sm_month.csv
+      # Median Sale Price (Raw, SFR only, Monthly)
+      median_sale_price:
+        local_path: ""
+        urls:
+          - https://files.zillowstatic.com/research/public_csvs/median_sale_price/Zip_median_sale_price_uc_sfrcondo_sm_month.csv
+      # For-Sale Inventory (Smooth, SFR Only, Monthly)
+      inventory:
+        local_path: ""
+        urls:
+          - https://files.zillowstatic.com/research/public_csvs/invt_fs/Zip_invt_fs_uc_sfrcondo_sm_month.csv
+
+  usps_activity:
+    # Configure either source_url or local_path.
+    source_url: ""
+    local_path: ""
+    tract_field: tract_fips
+    year_field: year
+    month_field: month
+    value_field: active_address_count
+
+  dc_open_data:
+    domain: data.dc.gov
+    app_token: ""
+    datasets: []
+      # Example dataset:
+      # - name: building_permits
+      #   dataset_id: REPLACE_ME
+      #   date_field: issue_date
+      #   lat_field: latitude
+      #   lon_field: longitude
+      #   zip_field: zip
+
+  osse:
+    source_url: ""
+    local_path: ""
+    sheet: null
+    zip_field: zip
+    lat_field: latitude
+    lon_field: longitude
+    rate_field: chronic_absenteeism_rate
+    year_field: year
+    weight_field: enrollment
+
+  msde_md:
+    source_url: ""
+    local_path: ""
+    sheet: null
+    zip_field: zip
+    lat_field: latitude
+    lon_field: longitude
+    rate_field: chronic_absenteeism_rate
+    year_field: year
+    weight_field: enrollment

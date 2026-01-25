@@ -481,6 +481,13 @@ def write_df(wb: Workbook, sheet_name: str, df: pd.DataFrame, freeze: str = "A2"
                 continue
             max_len = max(max_len, len(str(cell.value)))
         ws.column_dimensions[col_letter].width = min(max(10, max_len + 2), 45)
+    for cell in ws[1]:
+        if cell.value == "year":
+            for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=cell.column, max_col=cell.column):
+                year_cell = row[0]
+                if year_cell.value is not None:
+                    year_cell.number_format = "yyyy-mm-dd"
+            break
 
 
 def build_kpi_calcs(pipeline: pd.DataFrame, households: pd.DataFrame, high_income: pd.DataFrame, chooser: pd.DataFrame) -> pd.DataFrame:
@@ -501,6 +508,21 @@ def build_kpi_calcs(pipeline: pd.DataFrame, households: pd.DataFrame, high_incom
 
 def ensure_out_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
+
+
+def normalize_year_column(df: pd.DataFrame) -> pd.DataFrame:
+    if "year" not in df.columns:
+        return df
+    out = df.copy()
+    def _to_date(val: Any) -> Optional[datetime]:
+        if pd.isna(val):
+            return None
+        try:
+            return datetime(int(val), 1, 1)
+        except (TypeError, ValueError):
+            return None
+    out["year"] = out["year"].apply(_to_date)
+    return out
 
 
 def available_years(start_year: int, end_year: int, dataset: str, strict: bool) -> List[int]:
@@ -576,6 +598,15 @@ def write_refresh_workbook(
     osse_df: Optional[pd.DataFrame] = None,
 ) -> None:
     wb = ensure_workbook(out_path)
+
+    raw_p = normalize_year_column(raw_p)
+    raw_h = normalize_year_column(raw_h)
+    raw_i = normalize_year_column(raw_i)
+    raw_c = normalize_year_column(raw_c)
+    kpi_p = normalize_year_column(kpi_p)
+    kpi_h = normalize_year_column(kpi_h)
+    kpi_i = normalize_year_column(kpi_i)
+    kpi_c = normalize_year_column(kpi_c)
 
     write_df(wb, "RAW_ACS_B01001", raw_p)
     write_df(wb, "RAW_ACS_S1101", raw_h)

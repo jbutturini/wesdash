@@ -1,4 +1,7 @@
 wes_kpi*
 ~$wes_kpi.xlsx
 out/
+output/
+data/
 .DS_Store
+.venv
